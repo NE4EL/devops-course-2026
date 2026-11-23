@@ -1,0 +1,9 @@
+---
+app_image: "ghcr.io/ne4el/devops-ci-app"
+app_tag: "9b957428609ffdb38b9f3d3fa2d9014b44ca4c80"
+app_container_name: "devops-ci-app"
+app_host_port: 5000
+app_internal_port: 5000
+# The reviewed PR10 image is amd64; this VM runs Ubuntu arm64.
+app_platform: "linux/amd64"
+bootstrap_user: "evtushenko"

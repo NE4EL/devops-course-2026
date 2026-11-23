@@ -1,0 +1,76 @@
+---
+- name: Assert supported VM platform
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == "Ubuntu"
+      - ansible_facts['distribution_version'] is version("24.04", "==")
+      - ansible_facts['architecture'] in ["x86_64", "aarch64"]
+    fail_msg: "Ubuntu Server 24.04 amd64 or arm64 is required"
+# VirtualBox NAT DNS 10.0.2.3 is unreachable on this host. A tested
+# resolver is configured persistently before the first APT request.
+- name: Create systemd resolver drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+- name: Configure working DNS resolver for this lab
+  ansible.builtin.copy:
+    content: |
+      [Resolve]
+      DNS=8.8.8.8
+      FallbackDNS=8.8.4.4
+      Domains=~.
+    dest: /etc/systemd/resolved.conf.d/10-ansible-dns.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: lab_dns_config
+- name: Apply DNS configuration before installing packages
+  ansible.builtin.service:
+    name: systemd-resolved
+    state: restarted
+  when: lab_dns_config.changed
+- name: Install base packages and remote module dependencies
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, gnupg, openssh-server, ufw, python3-debian, python3-requests]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+- name: Add Docker official repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: https://download.docker.com/linux/ubuntu
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: [stable]
+    architectures: "{{ ['arm64'] if ansible_facts['architecture'] == 'aarch64' else ['amd64'] }}"
+    signed_by: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+- name: Install Docker Engine
+  ansible.builtin.apt:
+    name: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]
+    state: present
+    update_cache: true
+- name: Enable Docker service
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+- name: Install amd64 emulation for the reviewed image on ARM
+  ansible.builtin.apt:
+    name: [qemu-user-static, binfmt-support]
+    state: present
+  when: ansible_facts['architecture'] == 'aarch64' and app_platform == 'linux/amd64'
+- name: Inspect amd64 binary format registration
+  ansible.builtin.stat:
+    path: /proc/sys/fs/binfmt_misc/qemu-x86_64
+  register: amd64_binfmt
+  when: ansible_facts['architecture'] == 'aarch64' and app_platform == 'linux/amd64'
+- name: Enable amd64 binary format only when missing
+  ansible.builtin.command: update-binfmts --enable qemu-x86_64
+  when:
+    - ansible_facts['architecture'] == 'aarch64' and app_platform == 'linux/amd64'
+    - not amd64_binfmt.stat.exists
+  changed_when: true

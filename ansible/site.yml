@@ -2,9 +2,21 @@
 - name: Configure and deploy devops VM
   hosts: vm
   become: true
-  
   roles:
     - base
     - ssh
     - nginx
     - app
+  post_tasks:
+    - name: Apply notified handlers before checking reverse proxy
+      ansible.builtin.meta: flush_handlers
+    - name: Wait for reverse proxy to serve the application
+      ansible.builtin.uri:
+        url: http://127.0.0.1/health
+        return_content: true
+      register: proxy_health
+      retries: 15
+      delay: 1
+      until: >-
+        (proxy_health.status | default(-1)) == 200 and
+        (proxy_health.json | default({})).get("status") == "ok"

@@ -6,6 +6,32 @@
       - ansible_facts['distribution_version'] is version("24.04", "==")
       - ansible_facts['architecture'] in ["x86_64", "aarch64"]
     fail_msg: "Ubuntu Server 24.04 amd64 or arm64 is required"
+# VirtualBox NAT DNS 10.0.2.3 is unreachable on this host. A tested
+# resolver is configured persistently before the first APT request.
+- name: Create systemd resolver drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+- name: Configure working DNS resolver for this lab
+  ansible.builtin.copy:
+    content: |
+      [Resolve]
+      DNS=8.8.8.8
+      FallbackDNS=8.8.4.4
+      Domains=~.
+    dest: /etc/systemd/resolved.conf.d/10-ansible-dns.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: lab_dns_config
+- name: Apply DNS configuration before installing packages
+  ansible.builtin.service:
+    name: systemd-resolved
+    state: restarted
+  when: lab_dns_config.changed
 - name: Install base packages and remote module dependencies
   ansible.builtin.apt:
     name: [ca-certificates, curl, gnupg, openssh-server, ufw, python3-debian, python3-requests]
